@@ -142,7 +142,7 @@ def parse_shadow_line(line):
 
 
 def get_shadow_file(rootfs):
-    filename = rootfs / "etc/shadow"
+    filename = check_path(rootfs) / "etc/shadow"
     return check_path(filename)
 
 
