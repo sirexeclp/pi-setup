@@ -171,9 +171,21 @@ def change_pw(rootfs, password):
     save_shadow(rootfs, entries)
 
 
-def change_host(hostname):
-    # change name in etc/hostname
-    # change name in etc/hosts
+# https://raspberrypi.stackexchange.com/a/78093
+def change_host(rootfs, hostname):
+    # change hostname in etc/hostname
+    hostname_file = check_path(Path(rootfs) / "etc/hostname")
+    old_hostname = hostname_file.read_text().strip(" \n")
+    hostname_file.write_text(hostname + "\n")
+
+    # change hostname in etc/hosts
+    hosts_file = check_path(Path(rootfs) / "etc/hosts")
+    hosts = hosts_file.read_text()
+    hosts = hosts.replace(old_hostname, hostname)
+    hosts_file.write_text(hosts)
+
+
+def add2known_hosts():
     pass
 
 
