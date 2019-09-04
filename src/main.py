@@ -111,6 +111,11 @@ def parse_sshd_conf(filename):
     # print(options)
     return options
 
+def get_fingerprint(filename):
+    output = subprocess.run(["ssh-keygen", "-lf", str(filename)], capture_output=True)
+    if not output.stdout:
+        raise FileNotFoundError(output.stderr)
+    return output.stdout
 
 def ssh_addkey(rootfs, filename):
     filename = check_path(filename)
