@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 import crypt, getpass, pwd
 from gevent import os
+import re
 
 
 def render_template(template_file, **kwargs):
@@ -214,6 +215,28 @@ def add2ssh_conf(host_alias, host_name, identity_file, user="pi", port="22", for
 
 def add2known_hosts():
     pass
+    #TODO: add raspberry host key to known hosts file
+
+
+def get_current_wifi_ssid():
+    result = subprocess.run(['iwgetid'], capture_output=True)
+    regex = ".*ESSID ?:? ?\"(.*)\""
+    ssid = re.match(regex, result.stdout.decode("UTF-8"))[1]
+    return ssid
+
+
+def get_wifi_psk(ssid):
+    base = check_path(Path("/etc/NetworkManager/system-connections"))
+    con_file = base / Path(f"{ssid}.nmconnection")
+    connection = con_file.read_text().splitlines()
+    psk = [x[4:] for x in connection if x.startswith("psk")][0]
+    return psk
+
+
+def add2wifi(boot):
+    ssid = get_current_wifi_ssid()
+    print(f"configuring pi to use wifi with ssid: {ssid}")
+    configure_wifi(boot, ssid, get_wifi_psk(ssid))
 
 
 if __name__ == "__main__":
