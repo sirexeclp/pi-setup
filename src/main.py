@@ -1,4 +1,5 @@
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -183,6 +184,22 @@ def change_host(rootfs, hostname):
     hosts = hosts_file.read_text()
     hosts = hosts.replace(old_hostname, hostname)
     hosts_file.write_text(hosts)
+
+
+def configure_ddns(rootfs, web, server, login, password, domain, ipv6=False, interface="eth0"):
+    configure(rootfs, "etc/ddclient.conf", "ddclient.conf", web=web
+              , server=server, login=login, password=password, domain=domain, )
+
+
+def install_ddns(rootfs):
+    # setup script to install ddclient on first boot
+    source = Path("install_ddns.sh")
+    pi_target = Path("home/pi") / source
+    target: Path = rootfs / pi_target
+    shutil.copyfile(source, target)
+
+    cron_file = check_path(Path(rootfs) / "etc/cron.d/install_ddns")
+    cron_file.write_text(f"@reboot pi /bin/bash {str(Path('/') / pi_target)} &")
 
 
 def add2known_hosts():
