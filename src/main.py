@@ -19,7 +19,7 @@ def render_template(template_file, **kwargs):
 def check_path(path):
     """Converts given string to Path object and throws if the path does not exist."""
     path = Path(path)
-    assert path != Path("/"), "Do not use the host root here!"
+    # assert path != Path("/"), "Do not use the host root here!"
     if not path.exists():
         raise IOError(f"{path} does not exist")
     return path
