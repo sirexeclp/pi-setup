@@ -1,0 +1,8 @@
+Host {{host_alias}}
+    HostName {{host_name}}
+    User {{user}}
+    IdentityFile {{identity_file}}
+    Port {{port}}
+    {% if forward_agent -%}
+    ForwardAgent yes
+    {%- endif %}
