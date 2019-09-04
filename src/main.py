@@ -202,6 +202,16 @@ def install_ddns(rootfs):
     cron_file.write_text(f"@reboot pi /bin/bash {str(Path('/') / pi_target)} &")
 
 
+def add2ssh_conf(host_alias, host_name, identity_file, user="pi", port="22", forward_agent=False):
+    ssh_path = Path.home() / ".ssh"
+    ssh_path.mkdir(exist_ok=True)
+    ssh_config_path = ssh_path / "config"
+    shutil.copyfile(ssh_config_path, ssh_config_path.with_suffix(".bck"))
+    configure(ssh_path, "config", append=True,
+              host_alias=host_alias, host_name=host_alias, identity_file=str(identity_file),
+              user=user, port=port, forward_agent=forward_agent)
+
+
 def add2known_hosts():
     pass
 
