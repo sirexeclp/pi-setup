@@ -6,8 +6,11 @@ import subprocess
 from pathlib import Path
 import os
 import yaml
+from git import Repo
+import urllib.request
+import configparser
 
-DRY_RUN = True
+DRY_RUN = False
 
 
 def render_template(template_file, **kwargs):
@@ -75,13 +78,22 @@ def ssh_keygen(key_name, password):
     return filename.with_suffix(".pub")
 
 
-def set_key_value_config_file(filename, key, value, sep):
+def set_key_value_config_file(filename, key, value, sep, unique):
     pair = f"{key}{sep}{value}"
     config = filename.read_text()
     options = config.splitlines()
-    if key in config:
-        options = [pair if key in line else line for line in options]
-    else:
+
+    regex = re.compile(f"^#?\s*[^\n]{key}{sep}{value if not unique else ''}.*$")
+    result = []
+    match_found = False
+    for line in options:
+        if regex.search(line):
+            result.append(pair)
+            match_found = True
+        else:
+            result.append(line)
+
+    if not match_found:
         options.append(pair)
     filename.write_text("\n".join(options))
 
@@ -98,6 +110,13 @@ def get_current_wifi_ssid():
     regex = ".*ESSID ?:? ?\"(.*)\""
     ssid = re.match(regex, result.stdout.decode("UTF-8"))[1]
     return ssid
+
+
+def get_current_wifi_frequency():
+    result = subprocess.run(["iwgetid", "--freq"], capture_output=True)
+    regex = ".*Frequency ?:? ?([0-9])\\..*"
+    freq = re.match(regex, result.stdout.decode("UTF-8"))[1]
+    return int(freq)
 
 
 def get_wifi_psk(ssid):
@@ -129,10 +148,10 @@ class PiConfigurator:
         self.boot = check_path(self._get_mounts("boot")[0])
         self.rootfs = check_path(self._get_mounts("rootfs")[0])
 
-        assert str(
-            self.boot) == f"/media/{os.getlogin()}/boot", f"Unexpected mount path of pi boot partition! Expected: /media/{os.getlogin()}/boot Actual: {self.boot}"
-        assert str(
-            self.rootfs) == f"/media/{os.getlogin()}/rootfs", f"Unexpected mount path of pi rootfs partition! Expected: /media/{os.getlogin()}/rootfs Actual: {self.rootfs}"
+        assert f"media/{os.getlogin()}/boot" in str(
+            self.boot), f"Unexpected mount path of pi boot partition! Expected: /media/{os.getlogin()}/boot Actual: {self.boot}"
+        assert f"media/{os.getlogin()}/rootfs" in str(
+            self.rootfs), f"Unexpected mount path of pi rootfs partition! Expected: /media/{os.getlogin()}/rootfs Actual: {self.rootfs}"
 
         print(f"boot: {self.boot}")
         print(f"rootfs: {self.rootfs}")
@@ -189,7 +208,8 @@ class PiConfigurator:
         return check_path(self.rootfs / "etc/ssh/sshd_config")
 
     def disable_password_authentication(self):
-        set_key_value_config_file(filename=self._get_sshd_dir(), key="PasswordAuthentication", value="no", sep=" ")
+        set_key_value_config_file(filename=self._get_sshd_dir(), key="PasswordAuthentication"
+                                  , value="no", sep=" ", unique=True)
 
     def ssh_addkey(self, filename):
         filename = check_path(filename)
@@ -203,8 +223,8 @@ class PiConfigurator:
         if new_key not in all_keys:
             with authorized_keys.open("a") as f:
                 f.write(new_key)
-        os.chown(pi_ssh_dir, self.get_pi_uid(), self.get_pi_uid())
-        os.chown(authorized_keys, self.get_pi_uid(), self.get_pi_uid())
+        os.chown(pi_ssh_dir, self.get_pi_uid(), self.get_pi_gid())
+        os.chown(authorized_keys, self.get_pi_uid(), self.get_pi_gid())
         print(f"added key {filename} with fingerprint {get_fingerprint(filename)}")
 
     def change_pw(self, password):
@@ -277,40 +297,195 @@ class PiConfigurator:
 
         self.create_cron_job("install_ddns", f"/bin/bash {str(Path('/') / pi_target)} &")
 
-    def clone_wifi_settings(self):
+    def clone_wifi_settings(self, allow_5g):
+        if not allow_5g:
+            assert get_current_wifi_frequency() == 2, "Current WIFI is on 5GHz, but allow_5g is set to false!"
         ssid = get_current_wifi_ssid()
         psk = get_wifi_psk(ssid)
         self.configure_wifi(ssid, psk)
         print(f"configured pi to use wifi with ssid: {ssid}")
 
-    def configure_serial(self):
+    def _set_boot_config_value(self, key, value, unique):
         filename = check_path(self.boot / "config.txt")
-        set_key_value_config_file(filename=filename, key="dtoverlay", value="pi3-disable-bt", sep="=")
-        self.create_cron_job("set_serial_speed", "sudo stty -F /dev/ttyAMA0 speed 1200 crtscts")
+        set_key_value_config_file(filename=filename, key=key, value=value, sep="=", unique=unique)
 
-        source = Path("configure_serial.sh")
-        pi_target = Path("home/pi") / source
-        target: Path = self.rootfs / pi_target
-        shutil.copyfile(source, target)
-        self.create_cron_job("configure_serial", f"/bin/bash {str(Path('/') / pi_target)} &")
+    def _disable_serial_bt(self):
+        self._set_boot_config_value(key="dtoverlay", value="pi3-disable-bt", unique=False)
+
+    def enable_uart(self):
+        self._set_boot_config_value(key="enable_uart", value="1", unique=True)
+
+    def apply_ctsrts_device_tree(self):
+        device_tree_url = "https://github.com/HiassofT/AtariSIO/raw/master/contrib/rpi/uart-ctsrts.dtbo"
+        device_tree_destination = check_path(self.boot / "overlays") / "uart-ctsrts.dtbo"
+        urllib.request.urlretrieve(device_tree_url, device_tree_destination)
+
+        self._set_boot_config_value("dtoverlay", "uart-ctsrts", unique=False)
+
+    def configure_serial(self):
+        print("disabling bluetooth")
+        self._disable_serial_bt()
+        print("disabling serial console")
+        self.disable_serial_console()
+        print("enabling uart")
+        self.enable_uart()
+        print("applying ctsrts device tree overlay")
+        self.apply_ctsrts_device_tree()
+
+        # self.create_cron_job("set_serial_speed", "sudo stty -F /dev/ttyAMA0 speed 1200 crtscts")
+
+        # source = Path("configure_serial.sh")
+        # pi_target = Path("home/pi") / source
+        # target: Path = self.rootfs / pi_target
+        # shutil.copyfile(source, target)
+        # self.create_cron_job("configure_serial", f"/bin/bash {str(Path('/') / pi_target)} &")
+
+    def _get_passwd_file(self):
+        return check_path(self.rootfs / "etc/passwd")
+
+    def _read_passwd(self):
+        passwd = self._get_passwd_file().read_text().splitlines()
+
+        def parse_passwd_line(line):
+            values = line.split(":")
+            field_names = ["user", "password", "uid", "gid",
+                           "info", "home", "shell"]
+            result = dict(zip(field_names, values))
+            return result["user"], result
+
+        entries = dict([parse_passwd_line(e) for e in passwd])
+        return entries
+
+    def _get_group_file(self):
+        return check_path(self.rootfs / "etc/group")
+
+    def _read_group(self):
+        group = self._get_group_file().read_text().splitlines()
+
+        def parse_group_line(line):
+            values = line.split(":")
+            field_names = ["group", "password", "gid", "users"]
+            result = dict(zip(field_names, values))
+            result["users"] = result["users"].split(",")
+            return result["group"], result
+
+        entries = dict([parse_group_line(e) for e in group])
+        return entries
+
+    def _get_uid(self, user):
+        entries = self._read_passwd()
+        return int(get(entries, [user, "uid"], None))
+
+    def _get_gid(self, user):
+        entries = self._read_passwd()
+        return int(get(entries, [user, "gid"], None))
 
     def get_pi_uid(self):
-        pi_home = check_path(self.rootfs / "home/pi")
-        uid = check_path(pi_home).stat().st_uid
-        return uid
+        return self._get_uid("pi")
+
+    def get_pi_gid(self):
+        return self._get_uid("pi")
+
+    def _get_cmdline_file(self):
+        return check_path(self.boot / "cmdline.txt")
+
+    def _load_cmdline(self):
+        return self._get_cmdline_file().read_text().split(" ")
+
+    def _write_cmdline(self, commands):
+        cmdline = " ".join(commands)
+        self._get_cmdline_file().write_text(cmdline)
 
     def disable_serial_console(self):
-        filename = check_path(self.boot / "cmdline.txt")
-        cmdline = filename.read_text()
-        cmdline = cmdline.replace("console=serial0,115200", "")
-        filename.write_text(cmdline)
+        regex = re.compile("console=(ttyAMA0|serial0),[0-9]+")
+
+        commands = self._load_cmdline()
+        commands = [c for c in commands if regex.search(c) is None]
+        self._write_cmdline(commands)
+
+    def git_clone(self, repo, pi_path, user="pi"):
+        pi_path = Path(pi_path)
+
+        assert pi_path.is_absolute(), f"pi_path must be an absolute path!"
+
+        target_path = self.rootfs / Path(pi_path).relative_to("/")
+        repo = Repo.clone_from(repo, target_path)
+
+        uid = self._get_uid(user)
+        gid = self._get_gid(user)
+
+        assert uid is not None, f"No uid found for user {user}!"
+        assert gid is not None, f"No uid found for user {user}!"
+
+        chown_recursive(target_path, uid, gid)
+
+        return repo
+
+    def check_user_in_group(self, user, group):
+        groups = self._read_group()
+        try:
+            group = groups[group]
+        except KeyError:
+            raise Exception(f"Group {group} not found!")
+        return user in group["users"]
+
+    def _get_service_definition_file_path(self, service_name):
+        definition_path = check_path(self.rootfs / "lib/systemd/system")
+        return check_path(definition_path / service_name)
+
+    def _read_service_definition(self, service_name):
+        config = configparser.ConfigParser()
+        config.read(self._get_service_definition_file_path(service_name))
+        return config
+
+    def _get_service_link_path(self, service_name, wanted_by):
+        base_path = check_path(self.rootfs / "etc/systemd/system")
+        target_path = check_path(base_path / f"{wanted_by}.wants")
+        link = target_path / service_name
+        return link
+
+    def disable_service(self, service_name):
+        config = self._read_service_definition(service_name)
+        assert "Install" in config.sections(), f"No install section in {name}!"
+
+        def remove_symlink(wanted_by):
+            link = self._get_service_link_path(service_name, wanted_by)
+            link.unlink()
+
+        for key, value in config["Install"].items():
+            if key == "wantedby":
+                remove_symlink(value)
+        print(f"Service {service_name} disabled.")
+
+    def enable_service(self, service_name):
+        config = self._read_service_definition(service_name)
+        assert "Install" in config.sections(), f"No install section in {service_name}!"
+
+        def create_symlink(wanted_by):
+            link = self._get_service_link_path(service_name, wanted_by)
+            definition_file = self._get_service_definition_file_path(service_name)
+            link.symlink_to(definition_file)
+
+        for key, value in config["Install"].items():
+            if key == "wantedby":
+                create_symlink(value)
+        print(f"Service {service_name} enabled.")
+
+
+def chown_recursive(path, uid, gid):
+    os.chown(path, uid, gid)
+    for dirpath, dirnames, filenames in os.walk(path):
+        for dname in dirnames:
+            os.chown(os.path.join(dirpath, dname), uid, gid)
+        for fname in filenames:
+            os.chown(os.path.join(dirpath, fname), uid, gid)
 
 
 def get(dictionary, keys, default=None):
     try:
         for key in keys:
             dictionary = dictionary[key]
-    except KeyError:
+    except Exception:
         return default
 
     return dictionary
@@ -326,11 +501,11 @@ def parse_yaml(configurator, config_file="configuration.yaml"):
     if get(configuration, ["ssh", "key"]):
         configurator.ssh_addkey(get(configuration, ["ssh", "key"]))
 
-    if configuration.get("hostname", False) is True:
+    if configuration.get("hostname", False):
         configurator.change_host(configuration["hostname"])
 
-    if configuration.get("wifi", False) is True:
-        configurator.clone_wifi_settings()
+    if get(configuration, ["wifi", "clone"]) is True:
+        configurator.clone_wifi_settings(allow_5g=get(configuration, ["wifi", "allow-5g"], False))
 
     if isinstance(configuration.get("wifi", False), list):
         for entry in configuration["wifi"]:
@@ -352,24 +527,29 @@ def parse_yaml(configurator, config_file="configuration.yaml"):
                                     , get(configuration, ["ddns", "ipv6"], False)
                                     , get(configuration, ["ddns", "interface"], "eth0"))
 
-    if get(configuration, ["serial", "disable-console"]) is True:
-        configurator.disable_serial_console()
+    # if get(configuration, ["serial", "disable-console"]) is True:
+    #     configurator.disable_serial_console()
 
     if get(configuration, ["serial", "configure"]) is True:
         configurator.configure_serial()
 
+    if get(configuration, ["git-clone"]):
+        configurator.git_clone(get(configuration, ["git-clone", "repo"])
+                               , get(configuration, ["git-clone", "path"])
+                               , get(configuration, ["git-clone", "user"], "pi"))
+
+    if isinstance(get(configuration, ["service", "disable"]), list):
+        for service in get(configuration, ["service", "disable"]):
+            configurator.disable_service(service)
+
+    if isinstance(get(configuration, ["service", "enable"]), list):
+        for service in get(configuration, ["service", "enable"]):
+            configurator.enable_service(service)
 
 def main():
     card = auto_select_sd_card()
     configurator = PiConfigurator(card)
     parse_yaml(configurator)
-    # configurator.enable_ssh()
-    # configurator.clone_wifi_settings()
-    # configurator.change_host("mir-egal")
-    # configure_static_ip(rootfs)
-    # enable_ssh(boot)
-    # change_host(rootfs, "erika-pi-2")
-
 
 if __name__ == "__main__":
-    gimain()
+    main()
