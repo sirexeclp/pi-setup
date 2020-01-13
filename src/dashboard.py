@@ -25,8 +25,10 @@ if __name__ == "__main__":
     ssh_enabled = configurator.is_ssh_enabled()
     default_pw = configurator.is_default_password()
     static_ip = configurator.get_static_ip()
+    is_group_dialout = configurator.check_user_in_group("pi", "dialout")
 
     print(f"{check_not(hostname,'raspberrypi')} Hostname: {hostname}")
     print(f"{check(ssh_enabled, True)} SSH: {'enabled' if ssh_enabled else 'disabled'}")
     print(f"{check_not(default_pw, True)} Password: {'unchanged' if default_pw else 'changed'}")
     print(f"{check_not(static_ip, None)} Static IP: {static_ip}")
+    print(f"{check(is_group_dialout, True)} User pi is{' ' if is_group_dialout else ' not '}a member of the group dialout.")
