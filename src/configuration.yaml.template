@@ -1,16 +1,17 @@
 hostname: mir-egal
 ssh:
   enable: True
-  key: ~/.ssh/erika-py.pub
+  key: /home/user/.ssh/ssh-key.pub
 #  disable-password-authentication: True
 
-#set wifi to True (omit the rest) will clone current wifi settings
-#wifi: True
 wifi:
-  - ssid: Test
-    psk: secret
-  - ssid: Test2
-    psk: secret2
+  clone: True
+  allow-5g: False # only set this if your pi has 5GHz wifi support; e.g. pi zero does not
+#wifi:
+#  - ssid: Test
+#    psk: secret
+#  - ssid: Test2
+#    psk: secret2
 
 #static-ip:
 #    ip: 192.168.178.34
@@ -26,6 +27,14 @@ wifi:
 #  ipv6: #default: False
 #  interface: #default eth0; if set to False ipv6 will be determined using web method
 
-#serial:
-#  disable-console: True
-#  configure: True
+serial:
+  configure: True
+
+#git-clone:
+#  repo: git@github.com:sirexeclp/pi-setup.git
+#  path: /home/pi/pi-setup
+#  user: pi
+
+service:
+  disable:
+    - hciuart.service
