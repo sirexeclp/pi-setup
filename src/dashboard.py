@@ -32,3 +32,4 @@ if __name__ == "__main__":
     print(f"{check_not(default_pw, True)} Password: {'unchanged' if default_pw else 'changed'}")
     print(f"{check_not(static_ip, None)} Static IP: {static_ip}")
     print(f"{check(is_group_dialout, True)} User pi is{' ' if is_group_dialout else ' not '}a member of the group dialout.")
+

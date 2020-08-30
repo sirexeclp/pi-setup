@@ -3,6 +3,7 @@ import json
 import re
 import shutil
 import subprocess
+import getpass
 from pathlib import Path
 import os
 import yaml
@@ -148,10 +149,11 @@ class PiConfigurator:
         self.boot = check_path(self._get_mounts("boot")[0])
         self.rootfs = check_path(self._get_mounts("rootfs")[0])
 
-        assert f"media/{os.getlogin()}/boot" in str(
-            self.boot), f"Unexpected mount path of pi boot partition! Expected: /media/{os.getlogin()}/boot Actual: {self.boot}"
-        assert f"media/{os.getlogin()}/rootfs" in str(
-            self.rootfs), f"Unexpected mount path of pi rootfs partition! Expected: /media/{os.getlogin()}/rootfs Actual: {self.rootfs}"
+        username = getpass.getuser()
+        assert f"media/{username}/boot" in str(
+            self.boot), f"Unexpected mount path of pi boot partition! Expected: /media/{username}/boot Actual: {self.boot}"
+        assert f"media/{username}/rootfs" in str(
+            self.rootfs), f"Unexpected mount path of pi rootfs partition! Expected: /media/{username}/rootfs Actual: {self.rootfs}"
 
         print(f"boot: {self.boot}")
         print(f"rootfs: {self.rootfs}")
