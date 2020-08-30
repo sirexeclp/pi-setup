@@ -38,3 +38,10 @@ serial:
 service:
   disable:
     - hciuart.service
+
+pip:
+  requirements: my-requirements.txt
+
+pip:
+  - pandas
+  - numpy

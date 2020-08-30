@@ -1,5 +1,5 @@
 #! python3 ./dashboard.py
-from main import  *
+from pi_setup import  *
 from pathlib import Path
 from colorama import init, Fore, Back, Style
 init()
