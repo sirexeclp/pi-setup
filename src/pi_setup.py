@@ -1,4 +1,5 @@
 import crypt
+import errno
 import json
 import re
 import shutil
@@ -9,8 +10,16 @@ import yaml
 from git import Repo
 import urllib.request
 import configparser
+from apt_parser import *
 
 DRY_RUN = False
+
+
+def get_absolute_string(path):
+    return str(Path("/") / path)
+
+
+Path.get_absolute_string = get_absolute_string
 
 
 def render_template(template_file, **kwargs):
@@ -167,6 +176,7 @@ class PiConfigurator:
         """Enables ssh on the pi by creating an empty file named ssh on the boot partition."""
         ssh_file = self.boot / "ssh"
         open(ssh_file, 'a').close()
+        print("ssh enabled")
 
     def is_ssh_enabled(self):
         ssh_file = self.boot / "ssh"
@@ -292,10 +302,8 @@ class PiConfigurator:
         # setup script to install ddclient on first boot
         source = Path("install_ddns.sh")
         pi_target = Path("home/pi") / source
-        target: Path = self.rootfs / pi_target
-        shutil.copyfile(source, target)
-
-        self.create_cron_job("install_ddns", f"/bin/bash {str(Path('/') / pi_target)} &")
+        self.cp2rootfs(source, pi_target)
+        self.create_cron_job("install_ddns", f"/bin/bash {pi_target.get_absolute_string()} &")
 
     def clone_wifi_settings(self, allow_5g):
         if not allow_5g:
@@ -331,6 +339,8 @@ class PiConfigurator:
         self.enable_uart()
         print("applying ctsrts device tree overlay")
         self.apply_ctsrts_device_tree()
+        print("disabling hciuart.service")
+        self.disable_service("hciuart.service")
 
         # self.create_cron_job("set_serial_speed", "sudo stty -F /dev/ttyAMA0 speed 1200 crtscts")
 
@@ -471,6 +481,130 @@ class PiConfigurator:
                 create_symlink(value)
         print(f"Service {service_name} enabled.")
 
+    def cp2rootfs(self, source, target, user="root"):
+        target = self.get_target_path(target, self.rootfs)
+        self._cp(source, target)
+
+        uid = self._get_uid(user)
+        gid = self._get_gid(user)
+
+        assert uid is not None, f"No uid found for user {user}!"
+        assert gid is not None, f"No uid found for user {user}!"
+
+        chown_recursive(target, uid, gid)
+
+    def cp2boot(self, source, target):
+        target = self.get_target_path(target, self.boot)
+        self._cp(source, target)
+
+    @staticmethod
+    def get_target_path(target, root):
+        target = Path(target)
+        if target.is_absolute():
+            target = target.relative_to("/")
+        target: Path = root / target
+        target.parent.mkdir(parents=True, exist_ok=True)
+        return target
+
+    @staticmethod
+    def _cp(source, target):
+        source = check_path(source)
+        try:
+            shutil.copytree(source, target)
+            print(f"Directory copied from {source} to {target}")
+        except OSError as exc:  # python >2.5
+            if exc.errno == errno.ENOTDIR:
+                shutil.copy(source, target)
+                print(f"File copied from {source} to {target}")
+            else:
+                raise exc
+
+
+    @staticmethod
+    def pip_download(destination, package=None, requirements=None, platform="linux_armv7l",
+                     extra_index_url="https://www.piwheels.org/simple", cache=True, implementation=None, abi=None):
+        assert (package is None) != (requirements is None),\
+            "Must provide either single package or path to requirements file!"
+
+        destination = Path(destination)
+        # if destination.exists():
+        #     destination.rmdir()
+
+        destination.mkdir(exist_ok=True)
+
+        executable = ["pip3"]
+        args = ["download", "--platform", platform, "--only-binary=:all:",
+                "--extra-index-url", extra_index_url, "--dest", destination]
+        if cache:
+            args += ["--cache-dir", "../pip-cache"]
+        else:
+            args += ["--no-cache-dir"]
+
+        if package is not None:
+            if not isinstance(package, list):
+                package = [package]
+            args += package
+        elif requirements is not None:
+            requirements = check_path(requirements)
+            args += ["-r", requirements.get_absolute_string()]
+        else:
+            raise ValueError(
+                "lol, did you disable assertions?; anyway-- Must provide either single package or path to requirements file!")
+
+        subprocess.run(executable + args)
+    
+    def pip_install(self, package=None, requirements=None, upgrade=False, user=False):
+        install_script = "pip_install.sh"
+        destination = "pip-download"
+        pi_home = Path("home/pi")
+        pi_package_destination = pi_home / destination
+        pi_script_destination = pi_home / install_script
+
+        self.pip_download(destination, package=package, requirements=requirements)
+        self.cp2rootfs(destination, pi_package_destination)
+
+        if isinstance(package, list):
+            package = " ".join(package)
+        configure(self.rootfs, pi_home / "apt_install.sh", install_script, append=True, package=package,
+                  requirements=requirements, destination=pi_package_destination.get_absolute_string(),
+                  upgrade=upgrade, user=user)
+        #self.create_cron_job(name="pip_install", what=f"/bin/bash {pi_script_destination.get_absolute_string()} &")
+
+    @staticmethod
+    def apt_download(packages, destination):
+        destination = Path(destination)
+        # if destination.exists():
+        #     destination.rmdir()
+
+        destination.mkdir(exist_ok=True)
+
+        repos = ["deb http://raspbian.raspberrypi.org/raspbian/ buster main contrib non-free rpi"]
+            #,"deb http://archive.raspberrypi.org/debian/ buster main"]
+        sources = parse_apt_sources_list(repos)
+        apt_update(sources)
+
+        package_paths = []
+        for package in packages:
+            package_info = get_package_info(package, sources)
+            package_path = Path(destination) / Path(package_info["Filename"]).name
+            urllib.request.urlretrieve(package_info["Filename"], package_path)
+            package_paths.append(Path(package_info["Filename"]).name)
+        return package_paths
+
+    def apt_install(self, packages):
+        install_script = "apt_install.sh"
+        # destination = "apt-download"
+        pi_home = Path("home/pi")
+        # pi_package_destination = pi_home / destination
+        pi_script_destination = pi_home / install_script
+
+        # package_paths=self.apt_download(packages, destination)
+        # self.cp2rootfs(destination, pi_package_destination)
+        #
+        # package_paths = [(pi_package_destination / p).get_absolute_string() for p in package_paths]
+        configure(self.rootfs, pi_script_destination, install_script, append=False, packages=" ".join(packages))
+        self.create_cron_job(name="apt_install", what=f"/bin/bash {pi_script_destination.get_absolute_string()} &")
+
 
 def chown_recursive(path, uid, gid):
     os.chown(path, uid, gid)
@@ -546,10 +680,31 @@ def parse_yaml(configurator, config_file="configuration.yaml"):
         for service in get(configuration, ["service", "enable"]):
             configurator.enable_service(service)
 
+    if isinstance(get(configuration, ["cp", "boot"]), list):
+        for item in get(configuration, ["cp", "boot"]):
+            configurator.cp2boot(item["source"], item["target"])
+
+    if isinstance(get(configuration, ["cp", "rootfs"]), list):
+        for item in get(configuration, ["cp", "rootfs"]):
+            configurator.cp2rootfs(item["source"], item["target"], item.get("user", "root"))
+
+    if configuration.get("apt", False):
+        packages = configuration.get("apt")
+        configurator.apt_install(packages=packages)
+
+    if configuration.get("pip", False):
+        pip = configuration.get("pip")
+        package = None if configuration.get("requirements", False) else pip
+        configurator.pip_install(package=package, requirements=get(configuration, ["pip", "requirements"]))
+
+
 def main():
+    import sys
     card = auto_select_sd_card()
     configurator = PiConfigurator(card)
-    parse_yaml(configurator)
+    assert len(sys.argv) == 2, "usage: python3 pi_setup.py config.yaml"
+    parse_yaml(configurator, config_file=sys.argv[1])
+
 
 if __name__ == "__main__":
     main()
