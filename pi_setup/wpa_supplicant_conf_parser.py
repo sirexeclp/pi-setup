@@ -1,4 +1,4 @@
-from pathlib import Path
+import tabulate
 
 example = """
 country=DE 
@@ -17,19 +17,19 @@ network={
      key_mgmt=NONE
 }
 """
-import json
 
-def json2config(json_config, key = None ,indent=0):
+
+def json2config(json_config, key=None, indent=0):
     if isinstance(json_config, str):
         if key.startswith("#"):
-            return [f"{' '*4*indent}#{json_config}"]
+            return [f"{' ' * 4 * indent}#{json_config}"]
         else:
-            return [f"{' '*4*indent}{key}={json_config}"]
+            return [f"{' ' * 4 * indent}{key}={json_config}"]
     result = []
     if isinstance(json_config, list):
         for item in json_config:
             result += [f"{key}={{"]
-            result += json2config(item, key, indent=indent+1)
+            result += json2config(item, key, indent=indent + 1)
             result += ["}"]
         return result
     # result += ["{"]
@@ -38,7 +38,8 @@ def json2config(json_config, key = None ,indent=0):
     # result +="}"
     return result
 
-    #return "\n".join(result)
+    # return "\n".join(result)
+
 
 def config2json(config):
     result = {}
@@ -63,7 +64,7 @@ def config2json(config):
                 parent = result
                 result = child
             else:
-                #value = value#.strip("\"").strip("\'")
+                # value = value#.strip("\"").strip("\'")
                 result[key] = value
         elif line == "}":
             in_block = False
@@ -119,12 +120,15 @@ def always_iterable(obj, base_type=(str, bytes)):
         return iter((obj,))
 
 
-def print_networks(cfg_json):
+def format_networks(cfg_json):
     if not isinstance(cfg_json["network"], list):
         cfg_json["network"] = [cfg_json["network"]]
 
-    for network in always_iterable(cfg_json["network"], base_type=dict):
-        print(f"- {network['ssid']:<25s} : {network.get('psk', 'None'):10} {network.get('key_mgmt','None')}")
+    x = tabulate.tabulate([[x["ssid"], x.get('psk', 'None'), x.get('key_mgmt', 'None')] for x in
+                           always_iterable(cfg_json["network"], base_type=dict)], headers=["SSID", "PSK", "key_mgmt"])
+    # for network in always_iterable(cfg_json["network"], base_type=dict):
+    #     print(f"- {network['ssid']:<25s} : {network.get('psk', 'None'):10} {network.get('key_mgmt','None')}"
+    return x
 
 
 def list_networks(root_path):
@@ -132,16 +136,9 @@ def list_networks(root_path):
     wpa_path = root_path / "etc/wpa_supplicant/wpa_supplicant.conf"
     wpa_content = wpa_path.read_text()
     wpa_json = config2json(wpa_content)
-    print_networks(wpa_json)
+    return format_networks(wpa_json)
 
 
-if __name__ =="__main__":
-
+if __name__ == "__main__":
     cfg_json = config2json(example)
-    print_networks(cfg_json)
-
-    #print(cfg_json)
-    #print("\n".join(json2config(cfg_json)))
-    # example = example.replace("=",":")
-    # print(example)
-    # json.loads(example)
+    print(format_networks(cfg_json))
