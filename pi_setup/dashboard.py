@@ -1,12 +1,12 @@
 #! python3 ./dashboard.py
 import time
 
-from src.sd_card import DeviceManager, select_sd_card
-from src.pi_setup import *
+from pi_setup.sd_card import DeviceManager, select_sd_card
+from pi_setup.pi_setup import *
 from pathlib import Path
 from colorama import init, Fore, Back, Style
 
-from src.wpa_supplicant_conf_parser import list_networks
+from pi_setup.wpa_supplicant_conf_parser import list_networks
 
 init()
 

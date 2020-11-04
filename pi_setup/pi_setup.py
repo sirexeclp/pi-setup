@@ -13,7 +13,7 @@ import configparser
 import getpass
 
 # from .apt_parser import *
-from src.sd_card import BlockDevice
+from pi_setup.sd_card import BlockDevice
 
 DRY_RUN = False
 

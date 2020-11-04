@@ -1,6 +1,6 @@
 import unittest
 
-from src.sd_card import DeviceManager, select_sd_card
+from pi_setup.sd_card import DeviceManager, select_sd_card
 
 
 class MyTestCase(unittest.TestCase):
