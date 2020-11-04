@@ -10,7 +10,10 @@ import yaml
 from git import Repo
 import urllib.request
 import configparser
-from apt_parser import *
+import getpass
+
+# from .apt_parser import *
+from src.sd_card import BlockDevice
 
 DRY_RUN = False
 
@@ -41,24 +44,19 @@ def check_path(path):
     return path
 
 
-def auto_select_sd_card():
-    devices = lsblk()
-    cards = filter_sd_cards(devices)
-    assert len(cards) > 0, "Error: no sd card found"
-    assert len(cards) == 1, "Error: more than one sd card found"
-    return cards[0]
-
-
-def lsblk():
-    """Call lsblk commandline utility with -O (all data) and -J (JSON outpu) and return the output as dict."""
-    process = subprocess.run(["lsblk", "-O", "-J"], capture_output=True)
-    result = json.loads(process.stdout)
-    return result
-
-
-def filter_sd_cards(devices):
-    """Filter devices for sd_cards. SD cards are assumed to be removable, hot pluggable and use usb as transport bus."""
-    return [item for item in devices["blockdevices"] if item["rm"] and item["hotplug"] and item["tran"] == "usb"]
+#
+#
+# def get_filtered_devices(devices):
+#     devices = devices["blockdevices"]
+#     devices = list(map(BlockDevice, devices))
+#     devices = [x for x in devices if not x.is_loop_or_optical]
+#     devices = [x for x in devices if not x.is_system]  # list(filterfalse(BlockDevice.is_system, devices))
+#     return devices
+#
+#
+# def filter_sd_cards(devices):
+#     """Filter devices for sd_cards. SD cards are assumed to be removable, hot pluggable and use usb as transport bus."""
+#     return [item for item in devices["blockdevices"] if item["rm"] and item["hotplug"] and item["tran"] == "usb"]
 
 
 def configure(root_path, config_file, template_file, append=True, **kwargs):
@@ -152,25 +150,26 @@ def add2known_hosts():
 
 
 class PiConfigurator:
-    def __init__(self, card):
+    def __init__(self, card: BlockDevice):
         self.card = card
-        self.boot = check_path(self._get_mounts("boot")[0])
-        self.rootfs = check_path(self._get_mounts("rootfs")[0])
+        self.boot = self._get_mount("boot")
+        self.rootfs = self._get_mount("rootfs")
+        user = getpass.getuser()
 
-        assert f"media/{os.getlogin()}/boot" in str(
-            self.boot), f"Unexpected mount path of pi boot partition! Expected: /media/{os.getlogin()}/boot Actual: {self.boot}"
-        assert f"media/{os.getlogin()}/rootfs" in str(
-            self.rootfs), f"Unexpected mount path of pi rootfs partition! Expected: /media/{os.getlogin()}/rootfs Actual: {self.rootfs}"
+        assert f"media/{user}/boot" in str(
+            str(self.boot)), f"Unexpected mount path of pi boot partition! Expected: /media/{user}/boot Actual: {self.boot}"
+        assert f"media/{user}/rootfs" in str(
+            str(self.rootfs)), f"Unexpected mount path of pi rootfs partition! Expected: /media/{user}/rootfs Actual: {self.rootfs}"
 
         print(f"boot: {self.boot}")
         print(f"rootfs: {self.rootfs}")
 
-    def _get_mounts(self, filter_str):
+    def _get_mount(self, filter_str):
         """Filter mount points of devices, by path. Throws if no matching mount point is found."""
-        mounts = [child["mountpoint"] for child in self.card["children"] if filter_str in child["mountpoint"]]
+        mounts = [child for child in self.card.children if filter_str in str(child.mount_point)]
         if len(mounts) < 1:
             raise Exception(f"No mounts found with filter '{filter_str}'")
-        return mounts
+        return mounts[0]
 
     def enable_ssh(self):
         """Enables ssh on the pi by creating an empty file named ssh on the boot partition."""
@@ -519,11 +518,10 @@ class PiConfigurator:
             else:
                 raise exc
 
-
     @staticmethod
     def pip_download(destination, package=None, requirements=None, platform="linux_armv7l",
                      extra_index_url="https://www.piwheels.org/simple", cache=True, implementation=None, abi=None):
-        assert (package is None) != (requirements is None),\
+        assert (package is None) != (requirements is None), \
             "Must provide either single package or path to requirements file!"
 
         destination = Path(destination)
@@ -552,7 +550,7 @@ class PiConfigurator:
                 "lol, did you disable assertions?; anyway-- Must provide either single package or path to requirements file!")
 
         subprocess.run(executable + args)
-    
+
     def pip_install(self, package=None, requirements=None, upgrade=False, user=False):
         install_script = "pip_install.sh"
         destination = "pip-download"
@@ -568,7 +566,7 @@ class PiConfigurator:
         configure(self.rootfs, pi_home / "apt_install.sh", install_script, append=True, package=package,
                   requirements=requirements, destination=pi_package_destination.get_absolute_string(),
                   upgrade=upgrade, user=user)
-        #self.create_cron_job(name="pip_install", what=f"/bin/bash {pi_script_destination.get_absolute_string()} &")
+        # self.create_cron_job(name="pip_install", what=f"/bin/bash {pi_script_destination.get_absolute_string()} &")
 
     @staticmethod
     def apt_download(packages, destination):
@@ -579,7 +577,7 @@ class PiConfigurator:
         destination.mkdir(exist_ok=True)
 
         repos = ["deb http://raspbian.raspberrypi.org/raspbian/ buster main contrib non-free rpi"]
-            #,"deb http://archive.raspberrypi.org/debian/ buster main"]
+        # ,"deb http://archive.raspberrypi.org/debian/ buster main"]
         sources = parse_apt_sources_list(repos)
         apt_update(sources)
 
