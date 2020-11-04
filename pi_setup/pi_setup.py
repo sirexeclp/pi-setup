@@ -7,13 +7,12 @@ import subprocess
 from pathlib import Path
 import os
 import yaml
-from git import Repo
 import urllib.request
 import configparser
 import getpass
 
 # from .apt_parser import *
-from pi_setup.sd_card import BlockDevice
+from pi_setup.sd_card import BlockDevice, DeviceManager, select_sd_card
 
 DRY_RUN = False
 
@@ -459,7 +458,8 @@ class PiConfigurator:
 
         def remove_symlink(wanted_by):
             link = self._get_service_link_path(service_name, wanted_by)
-            link.unlink()
+            if link.exists():
+                link.unlink()
 
         for key, value in config["Install"].items():
             if key == "wantedby":
@@ -698,7 +698,8 @@ def parse_yaml(configurator, config_file="configuration.yaml"):
 
 def main():
     import sys
-    card = auto_select_sd_card()
+    cards = DeviceManager.get_sd_cards()
+    card = select_sd_card(cards)
     configurator = PiConfigurator(card)
     assert len(sys.argv) == 2, "usage: python3 pi_setup.py config.yaml"
     parse_yaml(configurator, config_file=sys.argv[1])
