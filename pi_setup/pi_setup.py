@@ -204,7 +204,7 @@ class PiConfigurator:
         """Configure wifi on the pi by writing wpa_supplicant.conf to the boot partition.
          wpa_supplicant.conf will be copied to the correct location and overwrite the existing config on bootup."""
         file_name = "wpa_supplicant.conf"
-        configure(self.boot, file_name, file_name, False, ssid=ssid, psk=psk)
+        configure(self.boot.mount_point, file_name, file_name, False, ssid=ssid, psk=psk)
         os.chmod(check_path(self.boot / file_name), 0o600)
 
     def _get_pi_ssh_dir(self, create=True):
@@ -700,9 +700,10 @@ def main():
     import sys
     cards = DeviceManager.get_sd_cards()
     card = select_sd_card(cards)
-    configurator = PiConfigurator(card)
-    assert len(sys.argv) == 2, "usage: python3 pi_setup.py config.yaml"
-    parse_yaml(configurator, config_file=sys.argv[1])
+    with card:
+        configurator = PiConfigurator(card)
+        assert len(sys.argv) == 2, "usage: python3 pi_setup.py config.yaml"
+        parse_yaml(configurator, config_file=sys.argv[1])
 
 
 if __name__ == "__main__":
