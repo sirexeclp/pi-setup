@@ -36,6 +36,7 @@ def render_template(template_file, **kwargs):
     output_text = template.render(**kwargs)
     return output_text
 
+
 def comment_line(path, pattern, comment_char="#"):
     path = Path(path)
     config = path.read_text()
@@ -45,11 +46,12 @@ def comment_line(path, pattern, comment_char="#"):
     result = []
     for line in lines:
         if regex.search(line):
-            result.append(comment_char+line)
+            result.append(comment_char + line)
         else:
             result.append(line)
 
     path.write_text("\n".join(result))
+
 
 def check_path(path):
     """Converts given string to Path object and throws if the path does not exist."""
@@ -194,9 +196,11 @@ class PiConfigurator:
         user = getpass.getuser()
 
         assert f"media/{user}/boot" in str(
-            str(self.boot)), f"Unexpected mount path of pi boot partition! Expected: /media/{user}/boot Actual: {self.boot}"
+            str(
+                self.boot)), f"Unexpected mount path of pi boot partition! Expected: /media/{user}/boot Actual: {self.boot}"
         assert f"media/{user}/rootfs" in str(
-            str(self.rootfs)), f"Unexpected mount path of pi rootfs partition! Expected: /media/{user}/rootfs Actual: {self.rootfs}"
+            str(
+                self.rootfs)), f"Unexpected mount path of pi rootfs partition! Expected: /media/{user}/rootfs Actual: {self.rootfs}"
 
         print(f"boot: {self.boot}")
         print(f"rootfs: {self.rootfs}")
@@ -239,11 +243,10 @@ class PiConfigurator:
         return next(iter([x.split("=")[1] for x in content if "static ip_address" in x]), None)
 
     def configure_wifi(self, ssid, psk=None):
-        """Configure wifi on the pi by writing wpa_supplicant.conf to the boot partition.
-         wpa_supplicant.conf will be copied to the correct location and overwrite the existing config on bootup."""
-        file_name = "wpa_supplicant.conf"
-        configure(self.boot.mount_point / file_name, file_name, False, ssid=ssid, psk=psk)
-        os.chmod(check_path(self.boot / file_name), 0o600)
+        """Configure wifi on the pi by writing wpa_supplicant.conf."""
+        file_name = Path("etc/wpa_supplicant/wpa_supplicant.conf")
+        configure(self.rootfs / file_name, file_name.name, False, ssid=ssid, psk=psk)
+        os.chmod(check_path(self.rootfs / file_name), 0o600)
 
     def _get_pi_ssh_dir(self, create=True):
         pi_ssh_dir = self.rootfs / Path("home/pi/.ssh")
@@ -659,11 +662,12 @@ class PiConfigurator:
         # self.cp2rootfs(destination, pi_package_destination)
         #
         # package_paths = [(pi_package_destination / p).get_absolute_string() for p in package_paths]
-        configure(self.rootfs / pi_script_destination, install_script, append=False, packages=" ".join(packages), update=update)
+        configure(self.rootfs / pi_script_destination, install_script, append=False, packages=" ".join(packages),
+                  update=update)
         self.create_cron_job(name="apt_install", what=f"/bin/bash {pi_script_destination.get_absolute_string()} &")
 
     def _get_systemd_target_path(self, target: str):
-        target_path = "lib/systemd/system/"+target+".target"
+        target_path = "lib/systemd/system/" + target + ".target"
         target_path = self.rootfs / target_path
         return target_path
 
@@ -687,7 +691,7 @@ class PiConfigurator:
             default_target.unlink()
 
         # os.symlink(default_target, new_target_path.name, dir_fd=new_target_path.parent.open().fileno())
-        default_target.symlink_to(new_target_path)#.relative_to(default_target.parent))
+        default_target.symlink_to(new_target_path)  # .relative_to(default_target.parent))
 
     def set_autologin(self, user: Optional[str], term: str = "xterm-256color"):
         autologin_conf_path = self.rootfs / "etc/systemd/system/getty@tty1.service.d/autologin.conf"
@@ -696,7 +700,6 @@ class PiConfigurator:
             # autologin_conf_path.unlink()
         else:
             configure(autologin_conf_path, "autologin.conf", append=False, user=user, term=term)
-
 
     def tty_service(self):
         target = check_path(self.rootfs / "lib/systemd/system/getty@.service")
@@ -708,8 +711,6 @@ class PiConfigurator:
     def un_blacklist_kernel_module(self, pattern):
         blacklist_path = self.rootfs / Path("etc/modprobe.d/raspi-blacklist.conf")
         comment_line(blacklist_path, "blacklist *" + pattern, comment_char="#")
-
-
 
 
 def chown_recursive(path, uid, gid):
@@ -749,7 +750,7 @@ def parse_yaml(configurator, config_file="configuration.yaml"):
 
     if isinstance(configuration.get("wifi", False), list):
         for entry in configuration["wifi"]:
-            configurator.configure_wifi(get(entry, ["ssid"]), get(entry, ["ssid"]))
+            configurator.configure_wifi(get(entry, ["ssid"]), get(entry, ["psk"]))
 
     if configuration.get("static-ip", False):
         configurator.configure_static_ip(ip_address=get(configuration, ["static-ip", "ip"], "192.168.3.14/24")
@@ -814,8 +815,9 @@ def main(config_path: Union[str, Path]) -> None:
 
 if __name__ == "__main__":
     import sys
+
     assert len(sys.argv) == 2, "usage: python3 pi_setup.py config.yaml"
     main(sys.argv[1])
 
 # TODO: select available 2.4 ghz wifi not current one
-# TODO: enable spi/ i2c etc. 
+# TODO: enable spi/ i2c etc.
