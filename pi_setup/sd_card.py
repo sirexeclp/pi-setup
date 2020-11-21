@@ -52,7 +52,8 @@ class Udisksctl:
     @staticmethod
     def mount(device_path: Union[str, Path]) -> Path:
         device_path = Path(device_path)
-        regex = "Mounted (.*) at (.*)$"
+        # some distros (open suse) add a dot to the end of udisksctl output
+        regex = "Mounted (.*?) at (.*?)\\.?$"
         result = Udisksctl._run("mount", str(device_path))
         try:
             mount_point = Path(re.match(regex, result).group(2))
@@ -63,7 +64,7 @@ class Udisksctl:
 
     @staticmethod
     def unmount(device_path: Union[str, Path]):
-        regex = "Unmounted (.*)..$"
+        regex = "Unmounted (.*?)\\.$"
         result = Udisksctl._run("unmount", device_path)
         return re.match(regex, result).group(1)
 
