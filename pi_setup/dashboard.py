@@ -25,7 +25,7 @@ def check_not(value, condition):
         return f"{Fore.RED}✘{Style.RESET_ALL}"
 
 
-if __name__ == "__main__":
+def main():
     cards = DeviceManager.get_sd_cards()
     card = select_sd_card(cards)
     with card:
@@ -48,3 +48,7 @@ if __name__ == "__main__":
               f"{' ' if is_group_dialout else ' not '}a member of the group dialout.")
 
         print(list_networks(configurator.rootfs))
+
+
+if __name__ == "__main__":
+    main()

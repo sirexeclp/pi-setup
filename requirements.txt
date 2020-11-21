@@ -1,3 +1,4 @@
 GitPython==3.0.5
 tabulate
 jinja2
+click

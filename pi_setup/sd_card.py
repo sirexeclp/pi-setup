@@ -54,7 +54,12 @@ class Udisksctl:
         device_path = Path(device_path)
         regex = "Mounted (.*) at (.*)$"
         result = Udisksctl._run("mount", str(device_path))
-        return Path(re.match(regex, result).group(2))
+        try:
+            mount_point = Path(re.match(regex, result).group(2))
+            return mount_point
+        except:
+            raise Exception(result)
+
 
     @staticmethod
     def unmount(device_path: Union[str, Path]):
@@ -71,6 +76,9 @@ class BlockDevice:
         self.read_only = raw_dict["ro"]
         self.name = raw_dict["name"]
         self.path = raw_dict["path"]
+        self.label = raw_dict.get("label", None)
+        self.vendor = raw_dict.get("vendor", None)
+        self.size = raw_dict.get("size", None)
         self.mount_point = BlockDevice.prepare_mounts(raw_dict["mountpoint"])
         self.children = list(map(BlockDevice, raw_dict.get("children", [])))
 
@@ -139,3 +147,7 @@ class BlockDevice:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.unmount_children()
+
+    def pretty_print(self):
+        name = self.label if self.label is not None else tuple(c.label for c in self.children)
+        print(name, self.size, self.path, self.vendor)
