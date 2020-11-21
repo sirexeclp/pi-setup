@@ -11,3 +11,26 @@ Planned features are:
 - changing default user and password
 - setting up dynamic dns
 - changing hostname
+
+## Quickstart
+
+This tool requires root privileges to write to the /rootfs partition of the sd card
+and to read some configuration files on the host (eg. wifi).
+
+To get some info about the sd-card, you can use the status command:
+
+```
+sudo python3 -m pi_setup status  
+```
+
+You can list the recognised sd-cards
+
+```bash
+sudo python3 -m pi_setup cards list
+```
+
+To flash a config use the setup command:
+
+```
+sudo python3 -m pi_setup setup <config.yaml>
+```
