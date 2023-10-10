@@ -1,4 +1,4 @@
-GitPython==3.1.32
+GitPython==3.1.37
 tabulate
 jinja2
 click
